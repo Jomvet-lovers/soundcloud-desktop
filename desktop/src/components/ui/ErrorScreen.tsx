@@ -26,8 +26,8 @@ export function ErrorScreen({
         <div
           className="relative overflow-hidden rounded-[2rem] p-8 text-center"
           style={{
-            border: '0.5px solid rgba(255,255,255,0.1)',
-            background: '#141417',
+            border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
+            background: 'var(--surface-raised)',
           }}
         >
           {/* emblem */}
@@ -36,8 +36,8 @@ export function ErrorScreen({
               className="relative flex h-20 w-20 items-center justify-center rounded-[26px]"
               style={{
                 color: 'var(--color-accent)',
-                background: 'rgba(255,255,255,0.05)',
-                border: '0.5px solid rgba(255,255,255,0.1)',
+                background: 'color-mix(in srgb, var(--ov-ink) 5%, transparent)',
+                border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
               }}
             >
               <AlertCircle size={34} strokeWidth={1.8} />

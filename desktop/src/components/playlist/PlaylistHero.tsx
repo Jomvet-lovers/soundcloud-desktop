@@ -62,9 +62,8 @@ export const PlaylistHero = React.memo(function PlaylistHero({
         <div
           className="relative h-full w-full overflow-hidden rounded-xl"
           style={{
-            background: 'rgba(255,255,255,0.03)',
-            boxShadow:
-              '0 25px 60px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1)',
+            background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+            boxShadow: `var(--artwork-shadow), inset 0 0 0 1px color-mix(in srgb, var(--ov-ink) 8%, transparent), inset 0 1px 0 color-mix(in srgb, var(--ov-ink) 10%, transparent)`,
           }}
         >
           {cover ? (

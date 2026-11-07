@@ -135,6 +135,7 @@ function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<
               key={tab.id}
               type="button"
               data-tab={tab.id}
+              data-tab-active={isActive}
               onClick={() => withViewTransition(() => onChange(tab.id))}
               className={`relative shrink-0 inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-md text-[12px] sm:text-[12.5px] font-medium transition-colors ${
                 overflows ? 'cursor-grab' : 'cursor-pointer'
@@ -149,7 +150,7 @@ function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<
               <span className="relative whitespace-nowrap">{tab.label}</span>
               {tab.count != null && (
                 <span
-                  className={`relative hidden sm:inline-flex text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded-md ${
+                  className={`tab-count relative hidden sm:inline-flex text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded-md ${
                     isActive ? 'text-white/80' : 'text-white/30'
                   }`}
                 >

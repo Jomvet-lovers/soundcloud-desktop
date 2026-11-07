@@ -202,7 +202,7 @@ export function SequenceRowOverlay({
       className={`${ROW_BASE} ${activeCls(isThis)} bg-white/[0.06] cursor-grabbing`}
       style={{
         transform: 'rotate(1.5deg)',
-        boxShadow: '0 24px 60px rgba(0,0,0,0.55), inset 0 0 0 0.5px rgba(255,255,255,0.12)',
+        boxShadow: `var(--artwork-shadow), inset 0 0 0 0.5px color-mix(in srgb, var(--ov-ink) 12%, transparent)`,
       }}
     >
       <div className="w-5 flex items-center justify-center shrink-0 text-white/40 -ml-1">

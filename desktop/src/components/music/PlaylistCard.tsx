@@ -96,14 +96,14 @@ export const PlaylistCard = React.memo(
             >
               <div
                 onClick={handlePlay}
-                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 group-hover:scale-100 ${
-                  showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
+                className={`on-artwork-pill w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 group-hover:scale-100 ${
+                  showPlayingOverlay ? 'scale-100' : 'scale-75'
                 }`}
               >
                 {isPlayingFromThis ? (
                   pauseBlack20
                 ) : (
-                  <Play size={20} fill="black" strokeWidth={0} className="ml-1" />
+                  <Play size={20} fill="currentColor" strokeWidth={0} className="ml-1" />
                 )}
               </div>
             </div>

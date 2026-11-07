@@ -40,17 +40,17 @@ export const ResolveCard = memo(function ResolveCard({ url, onDone }: ResolveCar
       <div
         className="w-full max-w-[440px] flex flex-col items-center gap-4 p-8 rounded-[2rem] text-center"
         style={{
-          background: 'rgba(20,20,24,0.9)',
-          border: '0.5px solid rgba(255,255,255,0.1)',
-          boxShadow: '0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)',
+          background: 'var(--surface-overlay)',
+          border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
+          boxShadow: `var(--popover-shadow), inset 0 1px 0 color-mix(in srgb, var(--ov-ink) 6%, transparent)`,
           isolation: 'isolate',
         }}
       >
         <div
           className="w-14 h-14 flex items-center justify-center rounded-2xl"
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '0.5px solid rgba(255,255,255,0.08)',
+            background: 'color-mix(in srgb, var(--ov-ink) 4%, transparent)',
+            border: '0.5px solid color-mix(in srgb, var(--ov-ink) 8%, transparent)',
           }}
         >
           {error ? (
@@ -73,7 +73,7 @@ export const ResolveCard = memo(function ResolveCard({ url, onDone }: ResolveCar
             type="button"
             onClick={onDone}
             className="h-9 px-5 rounded-full text-[13px] text-white/80 cursor-pointer transition-colors hover:bg-white/[0.06]"
-            style={{ border: '0.5px solid rgba(255,255,255,0.12)' }}
+            style={{ border: '0.5px solid color-mix(in srgb, var(--ov-ink) 12%, transparent)' }}
           >
             {'Back'}
           </button>

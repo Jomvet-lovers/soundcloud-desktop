@@ -65,8 +65,8 @@ export const GlobalSearch = memo(function GlobalSearch() {
       <div
         className="relative flex items-center gap-2.5 h-9 pl-3.5 pr-3.5 rounded-md overflow-hidden"
         style={{
-          background: 'rgba(28,28,34,0.9)',
-          border: `0.5px solid ${focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
+          background: 'var(--search-field-bg)',
+          border: `0.5px solid ${focused ? 'var(--color-accent)' : 'color-mix(in srgb, var(--ov-ink) 12%, transparent)'}`,
           transition: 'border-color 300ms ease',
         }}
       >
@@ -131,9 +131,9 @@ export const GlobalSearch = memo(function GlobalSearch() {
         <div
           className="absolute left-0 right-0 mt-2 p-1.5 rounded-2xl overflow-hidden"
           style={{
-            background: '#101014',
-            border: '0.5px solid rgba(255,255,255,0.1)',
-            boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
+            background: 'var(--surface-raised-strong)',
+            border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
+            boxShadow: 'var(--popover-shadow)',
           }}
         >
           <div className="flex items-center justify-between px-2.5 py-1.5">

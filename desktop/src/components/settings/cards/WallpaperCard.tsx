@@ -126,10 +126,11 @@ export function WallpaperCard() {
                   className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80"
                   data-touch-visible
                 >
-                  <X size={8} className="text-white" />
+                  {/* Sits on a dark scrim over the thumbnail: white in both themes. */}
+                  <X size={8} className="on-scrim" />
                 </span>
                 {backgroundImage === name && (
-                  <div className="absolute inset-0 bg-white/10 flex items-center justify-center">
+                  <div className="on-scrim absolute inset-0 bg-white/10 flex items-center justify-center">
                     <div className="w-4 h-4 rounded-full bg-white shadow-lg" />
                   </div>
                 )}

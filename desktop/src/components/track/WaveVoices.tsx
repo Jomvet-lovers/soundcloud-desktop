@@ -160,11 +160,11 @@ export const WaveVoices = React.memo(function WaveVoices({
             <span
               className="wv-pill absolute left-0 z-20 block w-max max-w-[320px] text-left font-medium leading-snug break-words"
               style={{
-                background: '#1b1b1f',
-                border: '0.5px solid rgba(255,255,255,0.1)',
+                background: 'var(--surface-raised-strong)',
+                border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
                 borderRadius: 7,
-                boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
-                color: 'rgba(255,255,255,0.88)',
+                boxShadow: 'var(--popover-shadow)',
+                color: 'color-mix(in srgb, var(--ov-ink) 88%, transparent)',
                 fontSize: 11.5,
                 padding: '6px 9px',
                 overflowWrap: 'anywhere',
@@ -248,11 +248,11 @@ export function FloatingComments({
           <span
             className="block w-max max-w-[320px] text-left font-medium leading-snug break-words"
             style={{
-              background: '#1b1b1f',
-              border: '0.5px solid rgba(255,255,255,0.1)',
+              background: 'var(--surface-raised-strong)',
+              border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
               borderRadius: 7,
-              boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
-              color: 'rgba(255,255,255,0.88)',
+              boxShadow: 'var(--popover-shadow)',
+              color: 'color-mix(in srgb, var(--ov-ink) 88%, transparent)',
               fontSize: 11.5,
               padding: '6px 9px',
               overflowWrap: 'anywhere',

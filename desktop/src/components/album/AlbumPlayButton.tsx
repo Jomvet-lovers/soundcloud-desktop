@@ -59,14 +59,16 @@ function AlbumPlayButtonImpl({ tracks, aura }: AlbumPlayButtonProps) {
       style={{
         background: auraRgb(aura),
         color: lightAura ? '#000' : '#fff',
-        boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.55)}, inset 0 1px 0 rgba(255,255,255,0.3)`,
+        boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.55)}, inset 0 1px 0 color-mix(in srgb, var(--ov-ink) 30%, transparent)`,
       }}
     >
       <span
         className="w-7 h-7 rounded-full flex items-center justify-center"
         style={{
-          background: lightAura ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)',
-          boxShadow: `inset 0 0 0 1px ${lightAura ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.25)'}`,
+          background: lightAura
+            ? 'rgba(0,0,0,0.18)'
+            : 'color-mix(in srgb, var(--ov-ink) 18%, transparent)',
+          boxShadow: `inset 0 0 0 1px ${lightAura ? 'rgba(0,0,0,0.25)' : 'color-mix(in srgb, var(--ov-ink) 25%, transparent)'}`,
         }}
       >
         {icon}

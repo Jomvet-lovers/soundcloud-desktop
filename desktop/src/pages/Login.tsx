@@ -82,9 +82,9 @@ export function Login() {
         <div
           className="relative overflow-hidden rounded-[2.25rem] px-8 pt-9 pb-7"
           style={{
-            border: '0.5px solid rgba(255,255,255,0.1)',
-            background: 'rgba(18, 18, 22, 0.97)',
-            boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
+            border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
+            background: 'var(--surface-overlay)',
+            boxShadow: 'var(--popover-shadow)',
           }}
         >
           <BrandMark subtitle={'Your music, your way'} />

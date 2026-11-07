@@ -25,17 +25,17 @@ export const EmptyState = memo(function EmptyState({
       <div
         className="w-full max-w-[460px] flex flex-col items-center gap-5 p-10 rounded-[2.25rem] text-center"
         style={{
-          background: 'rgba(20,20,24,0.9)',
-          border: '0.5px solid rgba(255,255,255,0.1)',
-          boxShadow: '0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)',
+          background: 'var(--surface-overlay)',
+          border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
+          boxShadow: `var(--popover-shadow), inset 0 1px 0 color-mix(in srgb, var(--ov-ink) 6%, transparent)`,
           isolation: 'isolate',
         }}
       >
         <div
           className="w-16 h-16 flex items-center justify-center rounded-2xl text-accent"
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '0.5px solid rgba(255,255,255,0.08)',
+            background: 'color-mix(in srgb, var(--ov-ink) 4%, transparent)',
+            border: '0.5px solid color-mix(in srgb, var(--ov-ink) 8%, transparent)',
           }}
         >
           {icon}

@@ -23,7 +23,7 @@ export function SidebarPins({
         <span
           className="absolute inset-x-0 top-1/2 h-px"
           style={{
-            background: 'rgba(255,255,255,0.07)',
+            background: 'color-mix(in srgb, var(--ov-ink) 7%, transparent)',
             opacity: collapsed ? 1 : 0,
             transition: 'opacity 240ms ease',
           }}

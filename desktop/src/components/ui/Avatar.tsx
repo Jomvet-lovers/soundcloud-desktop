@@ -23,7 +23,7 @@ export function Avatar({
   if (!src || src.includes('default_avatar')) {
     return (
       <div
-        className={`${radius} bg-bg-glass-active flex items-center justify-center text-text-tertiary ${className}`}
+        className={`${radius} bg-white/10 flex items-center justify-center text-text-tertiary ${className}`}
         style={sizeStyle}
       >
         <svg width={size * 0.5} height={size * 0.5} viewBox="0 0 16 16" fill="currentColor">

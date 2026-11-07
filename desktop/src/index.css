@@ -10,11 +10,16 @@
   --color-text-primary: rgba(255, 255, 255, 0.92);
   --color-text-secondary: rgba(255, 255, 255, 0.55);
   --color-text-tertiary: rgba(255, 255, 255, 0.25);
-  --color-accent: #ff5500;
-  --color-accent-hover: #ff6a1a;
-  --color-accent-glow: rgba(255, 85, 0, 0.2);
-  --color-accent-selection: rgba(255, 85, 0, 0.3);
+  --color-accent: #fa233b;
+  --color-accent-hover: #ff3b52;
+  --color-accent-glow: rgba(250, 35, 59, 0.2);
+  --color-accent-selection: rgba(250, 35, 59, 0.3);
   --color-accent-contrast: #ffffff;
+  /* Pure white/black that never follow the theme flip. Use only where the
+     element sits on artwork, and for physical controls (toggle knobs, slider
+     thumbs, selection ticks) whose polarity is part of the control. */
+  --color-fixed-white: #ffffff;
+  --color-fixed-black: #000000;
 
   --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-serif: "Inter", system-ui, sans-serif;
@@ -22,6 +27,236 @@
   --font-display: "Inter", system-ui, sans-serif;
   --font-mono-console: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Surface polarity ───────────────────────────────────────────
+   The UI is authored against a dark surface: ink is white at varying alpha.
+   Rather than restyling every component, the light theme flips the two theme
+   colours Tailwind resolves those utilities through — `text-white/60` compiles
+   to `color-mix(in oklab, var(--color-white) 60%, transparent)`, so redefining
+   the variable here turns every white-alpha utility into ink, and every
+   black-alpha utility (artwork scrims, chips) into a light scrim.
+
+   These are plain (unlayered) rules on purpose: Tailwind's utilities live in
+   `@layer utilities`, and unlayered declarations win against any layer without
+   a specificity fight. */
+
+/* Dark defaults: the original SoundCloud-theme blacks. Must come BEFORE the
+   light block: both selectors have the same specificity, so the later
+   declaration wins and the flip has to come last. */
+:root {
+  --ov-ink: #ffffff;
+  /* Unplayed wave ink. SoundCloud's own canvas paints it at ~45% white, which
+     is far brighter than a quiet-ui tint — the wave is the hero of the page. */
+  --sw-muted: rgba(255, 255, 255, 0.45);
+  /* Shade over the mirrored (comment-pick) half of the waveform. SoundCloud
+     leaves that half at ~27% of the upper half's value, so it dims towards the
+     page colour: black on the dark theme, white on the light one. */
+  --sw-lane-dim: rgba(0, 0, 0, 0.73);
+  --bg-root: #08080a;
+  --bg-chrome: #08080a;
+  --surface-raised: #141417;
+  --surface-raised-strong: #1a1a1e;
+  --scroll-thumb: rgba(255, 255, 255, 0.08);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.15);
+  --flat-ink: rgba(255, 255, 255, 0.92);
+  /* Elevation. Dark sits on near-black, so shadows carry the depth; the values
+     are the original SoundCloud-theme ones. */
+  --artwork-shadow: 0 25px 60px rgba(0, 0, 0, 0.55);
+  --popover-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  /* Hero titles were lit against the removed aura gradient; dark keeps a
+     whisper of it. */
+  --hero-title-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  /* The titlebar search field. */
+  --search-field-bg: rgba(28, 28, 34, 0.9);
+  /* Floating feature cards (search empty/resolve states). */
+  --surface-overlay: rgba(20, 20, 24, 0.9);
+  /* The "Following" state of the follow button: a dark chip on dark, a soft
+     grey fill on light (Apple's filled secondary button). */
+  --following-chip: rgba(40, 40, 46, 0.85);
+  /* Hover play-chip on track rows (the icon follows --ov-ink). */
+  --play-chip-bg: rgba(54, 54, 60, 0.92);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  /* Apple's ink is #1d1d1f, not pure black. */
+  --color-white: #1d1d1f;
+  --color-black: #ffffff;
+  /* The @theme text tokens: `html` sets body color from --color-text-primary,
+     so every element that inherits its text colour follows these. */
+  --color-text-primary: rgba(29, 29, 31, 0.92);
+  --color-text-secondary: rgba(60, 60, 67, 0.6);
+  --color-text-tertiary: rgba(60, 60, 67, 0.3);
+  /* Neutral ink used by inline styles (color-mix keeps the alpha call sites
+     readable: `color-mix(in srgb, var(--ov-ink) 6%, transparent)`). */
+  --ov-ink: #1d1d1f;
+  /* Muted waveform ink (canvas reads this; see soundwave/waveform.tsx). */
+  --sw-muted: rgba(29, 29, 31, 0.45);
+  --sw-lane-dim: rgba(255, 255, 255, 0.73);
+  /* App shell background: white content over Apple's #f5f5f7 chrome. */
+  --bg-root: #ffffff;
+  --bg-chrome: #f5f5f7;
+  /* Elevated surfaces (popovers, dialogs, menus). */
+  --surface-raised: #ffffff;
+  --surface-raised-strong: #ffffff;
+  /* Scrollbar thumb + selection ink. */
+  --scroll-thumb: rgba(29, 29, 31, 0.2);
+  --scroll-thumb-hover: rgba(29, 29, 31, 0.34);
+  /* Ink for gradient-clipped text flattened by the flat pass. */
+  --flat-ink: rgba(29, 29, 31, 0.92);
+  /* Apple's elevation: on white, shadows are whisper-soft and the depth comes
+     from hairlines instead. */
+  --artwork-shadow: 0 16px 40px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --popover-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+  /* Apple never shadows a title. */
+  --hero-title-shadow: none;
+  /* Apple's search field sits a step darker than the #f5f5f7 chrome. */
+  --search-field-bg: rgba(0, 0, 0, 0.055);
+  --surface-overlay: rgba(255, 255, 255, 0.92);
+  --following-chip: rgba(0, 0, 0, 0.06);
+  --play-chip-bg: rgba(0, 0, 0, 0.07);
+}
+
+/* ── Tabs (Apple Music treatment) ───────────────────────────────
+   Components mark the selected tab with `data-tab-active`; these rules give it
+   Apple's selected-segment look in light mode — full label ink at semibold,
+   secondaryLabel for the rest — without touching the dark theme. Unlayered, so
+   they win over the Tailwind utilities the buttons also carry. */
+[data-theme="light"] [data-tab-active="true"] {
+  color: #1d1d1f;
+  font-weight: 600;
+}
+
+[data-theme="light"] [data-tab-active="true"] .tab-count {
+  color: rgba(60, 60, 67, 0.6);
+}
+
+/* Arbitrary dark surfaces written as literal hex utilities (`bg-[#141417]`).
+   Tailwind compiles those to the literal colour, so they need a light twin. */
+[data-theme="light"] .bg-\[\#141417\] {
+  background-color: var(--surface-raised);
+}
+
+[data-theme="light"] .bg-\[\#1a1a1e\] {
+  background-color: var(--surface-raised-strong);
+}
+
+[data-theme="light"] .bg-\[\#1a1a1e\]\/95 {
+  background-color: color-mix(in srgb, var(--surface-raised-strong) 95%, transparent);
+}
+
+/* The now-playing bar is a solid dark plate; on a light surface it becomes a
+   hairline-separated white one. */
+[data-theme="light"] .bg-\[\#0b0b0e\] {
+  background-color: #ffffff;
+}
+
+/* Black scrims are the one family that does NOT flip: a dialog backdrop, a
+   queue veil and the chips sitting on artwork all need to stay dark, and the
+   ink on top of them stays white. `--color-black` flips to white for the
+   light surface, so restore the dark value for these steps. */
+[data-theme="light"] .bg-black\/20 {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+[data-theme="light"] .bg-black\/30 {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+[data-theme="light"] .bg-black\/35 {
+  background-color: rgba(0, 0, 0, 0.35);
+}
+[data-theme="light"] .bg-black\/40 {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+[data-theme="light"] .bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+[data-theme="light"] .bg-black\/60 {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+[data-theme="light"] .bg-black\/70 {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+[data-theme="light"] .bg-black\/85 {
+  background-color: rgba(0, 0, 0, 0.85);
+}
+
+/* The hover variants compile to their own selectors, so they need the same
+   treatment (a white scrim flashing on hover would read as a bug). */
+[data-theme="light"] .hover\:bg-black\/70:hover {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+[data-theme="light"] .group-hover\:bg-black\/30:is(:where(.group):hover *) {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+[data-theme="light"] .group-hover\:bg-black\/35:is(:where(.group):hover *) {
+  background-color: rgba(0, 0, 0, 0.35);
+}
+[data-theme="light"] .group-hover\:bg-black\/40:is(:where(.group):hover *) {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Ink on those scrims stays white — both as a descendant rule and for the
+   common case where the scrim and its `text-white/*` sit on the SAME element
+   (like the chips over artwork). */
+[data-theme="light"] .bg-black\/40 .text-white,
+[data-theme="light"] .bg-black\/50 .text-white,
+[data-theme="light"] .bg-black\/60 .text-white,
+[data-theme="light"] .bg-black\/70 .text-white,
+[data-theme="light"] .bg-black\/50 .text-white\/80,
+[data-theme="light"] .bg-black\/60 .text-white\/70,
+[data-theme="light"] .bg-black\/60 .text-white\/90 {
+  color: #ffffff;
+}
+
+[data-theme="light"]
+  :where(.bg-black\/40, .bg-black\/50, .bg-black\/60, .bg-black\/85):where(
+    .text-white,
+    .text-white\/70,
+    .text-white\/80,
+    .text-white\/85,
+    .text-white\/90
+  ) {
+  color: #ffffff;
+}
+
+/* …and their hover states (the chip deepens to black/70 under the pointer). */
+[data-theme="light"]
+  :where(.bg-black\/40, .bg-black\/50, .bg-black\/60, .bg-black\/85):where(
+    .hover\:text-white
+  ):hover {
+  color: #ffffff;
+}
+
+/* Ink that sits on a dark scrim over artwork (chips, close buttons, captions
+   over a cover gradient). The scrim stays dark in both themes, so its ink must
+   stay white — including everything the descendants inherit: resetting the two
+   polarity variables here makes `text-white/55` and friends resolve back to
+   white inside the scrim, exactly as they do in the dark theme. */
+.on-scrim {
+  color: #ffffff;
+  --color-white: #ffffff;
+  --ov-ink: #ffffff;
+}
+
+/* Artwork is the same picture in both themes, so a control drawn on it must not
+   follow the surface polarity. Flipping turns a white play pill near-black —
+   where it melts into the dark hover scrim — and a white glyph on a dark chip
+   invisible. These keep the dark-theme treatment on both surfaces. */
+.on-artwork-pill {
+  background-color: #ffffff;
+  color: #0a0a0a;
+}
+
+/* Solid filled button whose ink polarity is the accent of the app (Apple's
+   "Follow" / "Play" pill): white on the dark theme, ink on the light theme. */
+.pill-primary {
+  background-color: var(--ov-ink);
+  color: var(--bg-root);
+}
+
+.pill-primary:hover {
+  background-color: color-mix(in srgb, var(--ov-ink) 88%, transparent);
 }
 
 /* ── Performance modes ──────────────────────────────────────────
@@ -57,9 +292,14 @@
   background: rgba(22, 22, 26, 0.82);
 }
 
+[data-theme="light"][data-perf="light"] .glass,
+[data-theme="light"][data-perf="light"] .glass-flat {
+  background: rgba(29, 29, 31, 0.05);
+}
+
 [data-perf="light"] .glass-featured {
   backdrop-filter: none;
-  background: rgba(16, 16, 20, 0.86);
+  background: rgba(29, 29, 31, 0.86);
 }
 
 [data-perf="light"] .npb-glass {
@@ -131,7 +371,7 @@ body,
 }
 
 #root {
-  background: rgb(8, 8, 10);
+  background: var(--bg-root);
   overflow: hidden;
 }
 
@@ -163,12 +403,12 @@ select,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--scroll-thumb);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--scroll-thumb-hover);
 }
 
 /* ── Glass ──────────────────────────────────────────────────── */
@@ -178,9 +418,21 @@ select,
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+[data-theme="light"] .glass {
+  /* A white-on-white panel would vanish; Apple's light chrome steps *down* to
+     a faint grey instead of lifting to white. */
+  background: rgba(29, 29, 31, 0.035);
+  border-color: rgba(29, 29, 31, 0.07);
+}
+
 .glass-hover:hover {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] .glass-hover:hover {
+  background: rgba(29, 29, 31, 0.06);
+  border-color: rgba(29, 29, 31, 0.12);
 }
 
 .glass-flat {
@@ -204,6 +456,10 @@ select,
   animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
+[data-theme="light"] .skeleton-shimmer {
+  background: rgba(29, 29, 31, 0.07);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer {
     animation: none;
@@ -223,7 +479,7 @@ select,
 /* ── Selection ─────────────────────────────────────────────── */
 ::selection {
   background: var(--color-accent-selection);
-  color: white;
+  color: var(--color-white);
 }
 
 /* ── Focus reset ───────────────────────────────────────────── */
@@ -1021,6 +1277,15 @@ button:active:not(:disabled) {
 }
 
 /* Loading sweep shown over the fallback bars until SC's samples arrive. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 .sw-shimmer {
   animation: shimmer 1.8s ease-in-out infinite;
 }
@@ -1531,8 +1796,8 @@ button:active:not(:disabled) {
    one block covers every screen. */
 [style*="background-clip"] {
   background-image: none !important;
-  color: rgba(255, 255, 255, 0.92) !important;
-  -webkit-text-fill-color: rgba(255, 255, 255, 0.92) !important;
+  color: var(--flat-ink) !important;
+  -webkit-text-fill-color: var(--flat-ink) !important;
 }
 
 [style*="gradient"] {
@@ -1620,6 +1885,13 @@ button:active:not(:disabled) {
 .scd-tooltip[data-visible="1"] {
   opacity: 1;
 }
+
+[data-theme="light"] .scd-tooltip {
+  background: #ffffff;
+  border-color: rgba(29, 29, 31, 0.1);
+  box-shadow: 0 6px 18px rgba(29, 29, 31, 0.14);
+  color: rgba(29, 29, 31, 0.88);
+}
 @media (prefers-reduced-motion: reduce) {
   .scd-tooltip {
     transition: none;
@@ -1634,6 +1906,8 @@ button:active:not(:disabled) {
   background: rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(6px) saturate(1.4);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  /* The scrim is dark in both themes, so the chip's ink stays white. */
+  color: rgba(255, 255, 255, 0.8);
 }
 
 /* ── Touch & pen input ─────────────────────────────────────────

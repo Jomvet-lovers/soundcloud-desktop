@@ -66,6 +66,7 @@ function StartPageRedirect() {
 }
 
 export default function App() {
+  const themeMode = useSettingsStore((s) => s.themeMode);
   const { isAuthenticated, hasSession, fetchUser } = useAuthStore(
     useShallow((s) => ({
       isAuthenticated: s.isAuthenticated,
@@ -177,14 +178,17 @@ export default function App() {
   return (
     <ThemeProvider>
       <Toaster
-        theme="dark"
+        theme={themeMode}
         position="top-right"
         offset={48}
         toastOptions={{
           style: {
-            background: 'rgba(30, 30, 34, 0.9)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: 'rgba(255,255,255,0.85)',
+            background: themeMode === 'light' ? '#ffffff' : 'rgba(30, 30, 34, 0.9)',
+            border:
+              themeMode === 'light'
+                ? '1px solid rgba(29, 29, 31, 0.08)'
+                : '1px solid rgba(255, 255, 255, 0.08)',
+            color: themeMode === 'light' ? 'rgba(29, 29, 31, 0.9)' : 'rgba(255, 255, 255, 0.85)',
             fontSize: '13px',
           },
         }}

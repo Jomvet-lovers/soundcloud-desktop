@@ -87,7 +87,7 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
           {/* Lyric hit: the matched line is the signal — a pull-quote over the cover. */}
           {matchedLine ? (
             <div
-              className="absolute inset-x-0 bottom-0 px-3 pt-8 pb-3 pointer-events-none"
+              className="on-scrim absolute inset-x-0 bottom-0 px-3 pt-8 pb-3 pointer-events-none"
               style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82), transparent)' }}
             >
               <p
@@ -99,7 +99,7 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
             </div>
           ) : (
             <div
-              className="absolute inset-x-0 bottom-0 px-2.5 pt-8 pb-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+              className="on-scrim absolute inset-x-0 bottom-0 px-2.5 pt-8 pb-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
               style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.78), transparent)' }}
             >
               <p
@@ -118,26 +118,22 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
             </div>
           )}
 
-          {/* Play affordance */}
+          {/* Play affordance — drawn on the cover, so its ink stays white. */}
           <div
-            className={`absolute top-2 right-2 flex items-center justify-center rounded-full transition-all duration-300 ${
+            className={`on-scrim absolute top-2 right-2 flex items-center justify-center rounded-full transition-all duration-300 ${
               isThisPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
             }`}
             style={{
               width: hero ? 40 : 30,
               height: hero ? 40 : 30,
               background: 'rgba(0,0,0,0.62)',
-              border: '0.5px solid rgba(255,255,255,0.18)',
+              border: '0.5px solid color-mix(in srgb, var(--ov-ink) 18%, transparent)',
             }}
           >
             {isThisPlaying ? (
-              <Pause size={hero ? 18 : 14} className="text-white" fill="currentColor" />
+              <Pause size={hero ? 18 : 14} fill="currentColor" />
             ) : (
-              <Play
-                size={hero ? 18 : 14}
-                className="text-white translate-x-[1px]"
-                fill="currentColor"
-              />
+              <Play size={hero ? 18 : 14} className="translate-x-[1px]" fill="currentColor" />
             )}
           </div>
 
@@ -152,10 +148,10 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
                 hardStopHoverPreview();
                 onDive(track);
               }}
-              className="absolute bottom-2 right-2 flex items-center gap-1 h-8 px-2.5 rounded-full text-[11px] text-white/85 opacity-0 group-hover:opacity-100 transition-all duration-300 cursor-pointer"
+              className="on-scrim absolute bottom-2 right-2 flex items-center gap-1 h-8 px-2.5 rounded-full text-[11px] text-white/85 opacity-0 group-hover:opacity-100 transition-all duration-300 cursor-pointer"
               style={{
                 background: 'rgba(0,0,0,0.62)',
-                border: '0.5px solid rgba(255,255,255,0.18)',
+                border: '0.5px solid color-mix(in srgb, var(--ov-ink) 18%, transparent)',
               }}
             >
               <Compass size={12} />

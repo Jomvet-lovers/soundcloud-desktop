@@ -4,7 +4,9 @@ import { EQ_PRESETS, eqGainsFor } from '../lib/equalizer';
 import type { PerfMode } from '../lib/perf';
 import { createThrottledJsonStorage } from '../lib/tauri-storage';
 
-export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
+/** Surface polarity. `light` flips the neutral scale (see index.css
+ *  `[data-theme="light"]`), so every white-alpha utility reads as ink. */
+export type ThemeMode = 'dark' | 'light';
 export type StartupPage = 'home' | 'feed' | 'search' | 'library' | 'settings';
 export type DiscordRpcMode = 'track' | 'artist' | 'activity';
 export type InputMode = 'auto' | 'touch';
@@ -24,45 +26,54 @@ export interface EqProfile {
   defaults: number[];
 }
 
-export interface ThemePresetDef {
-  accent: string;
+export interface ThemeModeDef {
+  /** App shell / content background. */
   bg: string;
-  /** [accent, bg, card] for preview swatch */
+  /** Sidebar and other recessed chrome. */
+  bgChrome: string;
+  /** [accent, bg, card] for the preview swatch. */
   preview: [string, string, string];
 }
 
-export const THEME_PRESETS: Record<Exclude<ThemePreset, 'custom'>, ThemePresetDef> = {
-  soundcloud: {
-    accent: '#ff5500',
-    bg: '#08080a',
-    preview: ['#ff5500', '#08080a', '#1a1a1e'],
-  },
+/** Surface palettes. Dark keeps the original SoundCloud-theme blacks; light is
+ *  Apple Music's white content area over a faintly grey sidebar. */
+export const THEME_MODES: Record<ThemeMode, ThemeModeDef> = {
   dark: {
-    accent: '#ffffff',
-    bg: '#000000',
-    preview: ['#ffffff', '#000000', '#111111'],
+    bg: '#08080a',
+    bgChrome: '#08080a',
+    preview: ['#fa233b', '#08080a', '#1a1a1e'],
   },
-  neon: {
-    accent: '#bf5af2',
-    bg: '#08060f',
-    preview: ['#bf5af2', '#08060f', '#18102a'],
-  },
-  forest: {
-    accent: '#22c55e',
-    bg: '#050e08',
-    preview: ['#22c55e', '#050e08', '#0a1f10'],
-  },
-  crimson: {
-    accent: '#ff2d55',
-    bg: '#0c0507',
-    preview: ['#ff2d55', '#0c0507', '#1e0a10'],
+  light: {
+    bg: '#ffffff',
+    bgChrome: '#f5f5f7',
+    preview: ['#fa233b', '#ffffff', '#f5f5f7'],
   },
 };
 
+/** Accent choices offered in Settings. The first one is the default. */
+export interface AccentOption {
+  id: string;
+  label: string;
+  color: string;
+}
+
+export const ACCENT_OPTIONS: AccentOption[] = [
+  { id: 'apple-red', label: 'Apple Music', color: '#fa233b' },
+  { id: 'soundcloud', label: 'SoundCloud', color: '#ff5500' },
+  { id: 'pink', label: 'Pink', color: '#ff2d55' },
+  { id: 'orange', label: 'Orange', color: '#ff9500' },
+  { id: 'yellow', label: 'Yellow', color: '#ffcc00' },
+  { id: 'green', label: 'Green', color: '#34c759' },
+  { id: 'teal', label: 'Teal', color: '#30b0c7' },
+  { id: 'blue', label: 'Blue', color: '#007aff' },
+  { id: 'indigo', label: 'Indigo', color: '#5856d6' },
+  { id: 'purple', label: 'Purple', color: '#af52de' },
+  { id: 'graphite', label: 'Graphite', color: '#8e8e93' },
+];
+
 export interface SettingsState {
   accentColor: string;
-  bgPrimary: string;
-  themePreset: ThemePreset;
+  themeMode: ThemeMode;
   perfMode: PerfMode;
   backgroundImage: string;
   backgroundOpacity: number;
@@ -99,8 +110,7 @@ export interface SettingsState {
   /** Whether the OS default device change is followed live. */
   followDefaultOutput: boolean;
   setAccentColor: (color: string) => void;
-  setBgPrimary: (bg: string) => void;
-  setThemePreset: (id: ThemePreset) => void;
+  setThemeMode: (mode: ThemeMode) => void;
   setPerfMode: (mode: PerfMode) => void;
   setBackgroundImage: (url: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
@@ -141,9 +151,8 @@ export interface SettingsState {
 const DEFAULT_EQ_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 const DEFAULTS = {
-  accentColor: '#ff5500',
-  bgPrimary: '#08080a',
-  themePreset: 'soundcloud' as ThemePreset,
+  accentColor: ACCENT_OPTIONS[0].color,
+  themeMode: 'dark' as ThemeMode,
   perfMode: 'beauty' as PerfMode,
   backgroundImage: '',
   backgroundOpacity: 0.15,
@@ -177,16 +186,8 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       ...DEFAULTS,
-      setAccentColor: (accentColor) => set({ accentColor, themePreset: 'custom' }),
-      setBgPrimary: (bgPrimary) => set({ bgPrimary, themePreset: 'custom' }),
-      setThemePreset: (id) => {
-        if (id === 'custom') {
-          set({ themePreset: 'custom' });
-        } else {
-          const preset = THEME_PRESETS[id];
-          set({ themePreset: id, accentColor: preset.accent, bgPrimary: preset.bg });
-        }
-      },
+      setAccentColor: (accentColor) => set({ accentColor }),
+      setThemeMode: (themeMode) => set({ themeMode }),
       setPerfMode: (perfMode) => set({ perfMode }),
       setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
@@ -312,8 +313,7 @@ export const useSettingsStore = create<SettingsState>()(
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
-          bgPrimary: DEFAULTS.bgPrimary,
-          themePreset: DEFAULTS.themePreset,
+          themeMode: DEFAULTS.themeMode,
           backgroundImage: DEFAULTS.backgroundImage,
           backgroundOpacity: DEFAULTS.backgroundOpacity,
           backgroundDim: DEFAULTS.backgroundDim,
@@ -326,7 +326,7 @@ export const useSettingsStore = create<SettingsState>()(
       // Slider drags (EQ, wallpaper) fire dozens of writes per second; the
       // throttled adapter coalesces them and flushes when the window hides.
       storage: createThrottledJsonStorage(),
-      version: 23,
+      version: 25,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
@@ -365,9 +365,34 @@ export const useSettingsStore = create<SettingsState>()(
           ...p,
           defaults: p.defaults ?? [...p.gains],
         }));
+        // v23 → v24: surface polarity became its own setting.
+        // v24 → v25: the theme is just dark/light now and the accent is picked
+        // separately, so the old preset only contributes a polarity.
+        const legacyPreset = (prev as { themePreset?: string }).themePreset;
+        const themeMode: ThemeMode =
+          prev.themeMode ?? (legacyPreset === 'light' ? 'light' : 'dark');
+        // The old presets carried their own accent; keep it if it is not the
+        // stock SoundCloud orange, which is now just one of the accent choices.
+        const legacyAccent = prev.accentColor;
+        const accentColor =
+          legacyAccent && legacyAccent.toLowerCase() !== '#ff5500'
+            ? legacyAccent
+            : DEFAULTS.accentColor;
+        // `themePreset` / `bgPrimary` no longer exist; drop them so they are not
+        // written back by the next persist.
+        const {
+          themePreset: _dropPreset,
+          bgPrimary: _dropBg,
+          ...rest
+        } = migrated as {
+          themePreset?: string;
+          bgPrimary?: string;
+        } & Record<string, unknown>;
         return {
           ...DEFAULTS,
-          ...migrated,
+          ...rest,
+          accentColor,
+          themeMode,
           pinnedPlaylistsByAccount: byAccount,
           eqProfiles: migratedProfiles,
           eqPreset,
@@ -376,8 +401,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
       partialize: (s) => ({
         accentColor: s.accentColor,
-        bgPrimary: s.bgPrimary,
-        themePreset: s.themePreset,
+        themeMode: s.themeMode,
         perfMode: s.perfMode,
         backgroundImage: s.backgroundImage,
         backgroundOpacity: s.backgroundOpacity,

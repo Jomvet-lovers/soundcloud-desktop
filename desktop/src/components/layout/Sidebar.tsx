@@ -152,6 +152,8 @@ export const Sidebar = React.memo(() => {
       style={{
         width: collapsed ? 56 : 196,
         transitionDuration: perf.mode === 'light' ? '0ms' : undefined,
+        // Apple Music recesses the sidebar against the content area.
+        backgroundColor: 'var(--bg-chrome)',
       }}
     >
       {/* Shared active-row wash 遯ｶ繝ｻslides between rows on navigation. */}
@@ -163,7 +165,7 @@ export const Sidebar = React.memo(() => {
         style={{
           transform: `translateY(${indicator.top}px)`,
           opacity: indicator.visible ? 1 : 0,
-          background: 'rgba(255,255,255,0.08)',
+          background: 'color-mix(in srgb, var(--ov-ink) 8%, transparent)',
         }}
       />
       <nav className="flex flex-col gap-0.5 px-2 pt-3">

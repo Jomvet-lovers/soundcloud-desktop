@@ -59,13 +59,13 @@ export function FollowBtn({ userUrn }: FollowBtnProps) {
       onClick={toggle}
       disabled={busy}
       className={`inline-flex items-center justify-center gap-2 h-9 px-5 rounded-full text-[12px] font-semibold tracking-wide transition-colors cursor-pointer disabled:opacity-60 ${
-        following ? 'text-white/80 hover:text-white' : 'text-black hover:bg-white/90'
+        following ? 'text-white/80 hover:text-white' : 'pill-primary'
       }`}
       style={{
-        background: following ? 'rgba(40,40,46,0.85)' : '#ffffff',
+        background: following ? 'var(--following-chip)' : undefined,
         border: following
-          ? '0.5px solid rgba(255,255,255,0.12)'
-          : '0.5px solid rgba(255,255,255,0.4)',
+          ? '0.5px solid color-mix(in srgb, var(--ov-ink) 12%, transparent)'
+          : '0.5px solid color-mix(in srgb, var(--ov-ink) 40%, transparent)',
       }}
     >
       {busy ? <Loader2 size={14} className="animate-spin" /> : following ? 'Following' : 'Follow'}

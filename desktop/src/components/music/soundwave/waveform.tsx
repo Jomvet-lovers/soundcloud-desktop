@@ -129,12 +129,15 @@ export const LiveWaveform = React.memo(
         const muted = mutedRef.current;
         const accent = accentRef.current;
         if (muted) {
+          // Muted-lane ink lives in CSS (`--sw-muted`) so the light theme can
+          // flip it to ink; canvas cannot resolve var(), so read it here.
+          const mutedInk = getComputedStyle(muted).getPropertyValue('--sw-muted').trim();
           paintWave(
             muted,
             samples?.values ?? null,
             samples?.height ?? 1,
             FALLBACK_BARS,
-            'rgba(255,255,255,0.22)',
+            mutedInk || 'color-mix(in srgb, var(--ov-ink) 22%, transparent)',
             dpr,
           );
         }
@@ -238,34 +241,33 @@ export const LiveWaveform = React.memo(
             aria-hidden
             style={{
               background:
-                'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.07) 50%, transparent 100%)',
+                'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--ov-ink) 7%, transparent) 50%, transparent 100%)',
               backgroundSize: '200% 100%',
             }}
           />
         )}
-        {/* Lower lane: a light tint marks the comment-pick zone without hiding
-            the mirrored half the way the official wave shows it. Clicking pins
-            a comment spot there without seeking. */}
+        {/* Lower lane: the mirrored half is dimmed towards the page colour, as
+            on SoundCloud's own wave; clicking pins a comment spot there without
+            seeking. Stops at the gutter like the bars do. */}
         <div
           className="absolute left-0 right-10 top-1/2 bottom-0 cursor-crosshair"
-          style={{ background: 'rgba(0,0,0,0.18)' }}
+          style={{ background: 'var(--sw-lane-dim)' }}
           onClick={handleCommentClick}
         />
-        {/* Center separator line, like the official wave (contrastText @ 50%). */}
+        {/* Center separator line, like the official wave: 2 px of 25% ink. */}
         <div
-          className="pointer-events-none absolute left-0 right-10 top-1/2 -translate-y-1/2 h-px"
-          style={{ background: 'rgba(255,255,255,0.45)' }}
+          className="pointer-events-none absolute left-0 right-10 top-1/2 -translate-y-1/2 h-0.5"
+          style={{ background: 'color-mix(in srgb, var(--ov-ink) 25%, transparent)' }}
         />
         {isCurrent && (
           <div className="pointer-events-none absolute inset-y-0 left-0 right-10">
             <div
               ref={hintRef}
-              className="absolute top-0 bottom-0 w-[2px] rounded-full"
+              className="absolute top-0 bottom-0 w-[2px]"
               style={{
                 left: '0%',
                 transform: 'translateX(-50%)',
-                background: 'var(--color-accent)',
-                boxShadow: '0 0 8px var(--color-accent-glow), 0 0 16px var(--color-accent-glow)',
+                background: 'color-mix(in srgb, var(--ov-ink) 50%, transparent)',
               }}
             />
           </div>

@@ -98,7 +98,7 @@ function DiscoverCard({
         {/* Hover: dim + centred play, same as the HOME track cards. */}
         {!busy && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-300 group-hover:bg-black/30 group-hover:opacity-100">
-            <div className="flex w-10 h-10 items-center justify-center rounded-full bg-white/90 scale-75 shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover:scale-100">
+            <div className="on-artwork-pill flex w-10 h-10 items-center justify-center rounded-full scale-75 shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover:scale-100">
               {playBlack20}
             </div>
           </div>
@@ -367,6 +367,7 @@ function SearchResults() {
             <button
               key={item.id}
               type="button"
+              data-tab-active={on}
               onClick={() => withViewTransition(() => setTab(item.id))}
               className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
                 on ? 'text-white/90' : 'text-white/45 hover:text-white/70'
@@ -398,6 +399,7 @@ function SearchResults() {
                 <button
                   key={opt.id}
                   type="button"
+                  data-tab-active={on}
                   onClick={() => withViewTransition(() => setSort(opt.id))}
                   className={`relative rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                     on ? 'text-white/90' : 'text-white/40 hover:text-white/70'

@@ -46,12 +46,12 @@ function AlbumCoverArtifactImpl({
       <div
         className="relative w-full h-full rounded-xl overflow-hidden"
         style={{
-          background: 'rgba(255,255,255,0.03)',
+          background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+          // Deep drop shadow on dark (the original SoundCloud look), a soft
+          // Apple-style one on light — see --artwork-shadow in index.css.
           boxShadow: `${
-            hasStar
-              ? 'inset 0 0 0 1px rgba(255,255,255,0.12), inset 0 1px 0 rgba(255,255,255,0.15)'
-              : '0 25px 60px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1)'
-          }${outline ? ', 0 0 0 1px rgba(255,255,255,0.18)' : ''}`,
+            hasStar ? '' : 'var(--artwork-shadow), '
+          }inset 0 0 0 1px color-mix(in srgb, var(--ov-ink) 8%, transparent), inset 0 1px 0 color-mix(in srgb, var(--ov-ink) 10%, transparent)${outline ? ', 0 0 0 1px color-mix(in srgb, var(--ov-ink) 18%, transparent)' : ''}`,
         }}
       >
         {coverUrl ? (
@@ -60,7 +60,9 @@ function AlbumCoverArtifactImpl({
           <div
             className="w-full h-full flex items-center justify-center"
             style={{
-              background: hasStar ? auraRgba(aura, 0.2) : 'rgba(255,255,255,0.03)',
+              background: hasStar
+                ? auraRgba(aura, 0.2)
+                : 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
             }}
           >
             <Disc3 size={72} className="text-white/15" />

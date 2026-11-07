@@ -1,39 +1,31 @@
 import { useRef } from 'react';
 import { Sparkles } from '../../../lib/icons';
-import { THEME_PRESETS, useSettingsStore } from '../../../stores/settings';
+import {
+  ACCENT_OPTIONS,
+  THEME_MODES,
+  type ThemeMode,
+  useSettingsStore,
+} from '../../../stores/settings';
 import { Card } from '../primitives';
 
-const THEME_PRESET_KEYS = ['soundcloud', 'dark', 'neon', 'forest', 'crimson'] as const;
+const THEME_MODE_KEYS: ThemeMode[] = ['dark', 'light'];
 
-const PRESET_COLORS = [
-  '#ff5500',
-  '#ff3366',
-  '#7c3aed',
-  '#3b82f6',
-  '#06b6d4',
-  '#10b981',
-  '#eab308',
-  '#ef4444',
-  '#f97316',
-  '#8b5cf6',
-];
-
-const THEME_LABEL: Record<string, string> = {
-  soundcloud: 'SoundCloud',
+const THEME_MODE_LABEL: Record<ThemeMode, string> = {
   dark: 'Dark',
-  neon: 'Neon',
-  forest: 'Forest',
-  crimson: 'Crimson',
-  custom: 'Custom',
+  light: 'Light',
 };
 
 export function ThemeCard() {
   const accentColor = useSettingsStore((s) => s.accentColor);
-  const themePreset = useSettingsStore((s) => s.themePreset);
+  const themeMode = useSettingsStore((s) => s.themeMode);
   const setAccentColor = useSettingsStore((s) => s.setAccentColor);
-  const setThemePreset = useSettingsStore((s) => s.setThemePreset);
+  const setThemeMode = useSettingsStore((s) => s.setThemeMode);
   const resetTheme = useSettingsStore((s) => s.resetTheme);
   const colorInputRef = useRef<HTMLInputElement>(null);
+
+  const isCustomAccent = !ACCENT_OPTIONS.some(
+    (option) => option.color.toLowerCase() === accentColor.toLowerCase(),
+  );
 
   return (
     <Card
@@ -52,31 +44,52 @@ export function ThemeCard() {
       <div className="space-y-6">
         <div className="space-y-3">
           <label className="text-[13px] text-white/50 font-medium">{'Theme'}</label>
-          <div className="grid grid-cols-3 gap-3">
-            {THEME_PRESET_KEYS.map((id) => {
-              const def = THEME_PRESETS[id];
-              const isActive = themePreset === id;
+          <div className="grid grid-cols-2 gap-3">
+            {THEME_MODE_KEYS.map((id) => {
+              const def = THEME_MODES[id];
+              const isActive = themeMode === id;
               return (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setThemePreset(id)}
-                  className={`group relative rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
+                  onClick={() => setThemeMode(id)}
+                  className={`group relative rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
                     isActive
                       ? 'border-white/30 ring-1 ring-white/20'
                       : 'border-white/[0.06] hover:border-white/15'
                   }`}
                 >
                   <div
-                    className="relative h-16 overflow-hidden"
-                    style={{ backgroundColor: def.preview[1] }}
+                    className="relative h-20 overflow-hidden"
+                    style={{ backgroundColor: def.bg }}
                   >
+                    {/* A miniature of the app: recessed sidebar + content rows. */}
                     <div
-                      className="absolute left-3 top-3 w-5 h-5 rounded-full"
-                      style={{ backgroundColor: def.preview[0] }}
+                      className="absolute inset-y-0 left-0 w-1/4"
+                      style={{ backgroundColor: def.bgChrome }}
                     />
+                    <div className="absolute left-[32%] right-3 top-3 flex items-center gap-2">
+                      <div
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: accentColor }}
+                      />
+                      <div
+                        className="h-1.5 flex-1 rounded-full"
+                        style={{ backgroundColor: def.preview[2] }}
+                      />
+                    </div>
+                    <div className="absolute left-[32%] right-3 top-8 space-y-1.5">
+                      <div
+                        className="h-1.5 w-3/4 rounded-full"
+                        style={{ backgroundColor: def.preview[2] }}
+                      />
+                      <div
+                        className="h-1.5 w-1/2 rounded-full"
+                        style={{ backgroundColor: def.preview[2] }}
+                      />
+                    </div>
                     <div
-                      className="absolute right-3 bottom-2 left-3 h-6 rounded-lg"
+                      className="absolute bottom-2 right-2 w-6 h-6 rounded-md"
                       style={{ backgroundColor: def.preview[2] }}
                     />
                   </div>
@@ -84,67 +97,53 @@ export function ThemeCard() {
                     <span
                       className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/50'}`}
                     >
-                      {THEME_LABEL[id] ?? id}
+                      {THEME_MODE_LABEL[id]}
                     </span>
                   </div>
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => {
-                setThemePreset('custom');
-                colorInputRef.current?.click();
-              }}
-              className={`group relative rounded-2xl overflow-hidden border border-dashed transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
-                themePreset === 'custom'
-                  ? 'border-white/30 bg-white/[0.04]'
-                  : 'border-white/[0.1] hover:border-white/20'
-              }`}
-            >
-              <div className="h-16 flex items-center justify-center">
-                <span className="text-[20px] text-white/30 group-hover:text-white/50 transition-colors">
-                  +
-                </span>
-              </div>
-              <div className="px-3 py-2 bg-white/[0.02] text-center">
-                <span
-                  className={`text-[12px] font-medium ${themePreset === 'custom' ? 'text-white/90' : 'text-white/40'}`}
-                >
-                  {'Custom'}
-                </span>
-              </div>
-            </button>
           </div>
         </div>
 
-        {themePreset === 'custom' && (
-          <div className="space-y-3">
-            <label className="text-[13px] text-white/50 font-medium">{'Accent color'}</label>
-            <div className="flex items-center gap-2 flex-wrap">
-              {PRESET_COLORS.map((color) => (
+        <div className="space-y-3">
+          <label className="text-[13px] text-white/50 font-medium">{'Accent color'}</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {ACCENT_OPTIONS.map((option) => {
+              const isActive = accentColor.toLowerCase() === option.color.toLowerCase();
+              return (
                 <button
-                  key={color}
+                  key={option.id}
                   type="button"
-                  onClick={() => setAccentColor(color)}
+                  title={option.label}
+                  aria-label={option.label}
+                  aria-pressed={isActive}
+                  onClick={() => setAccentColor(option.color)}
                   className="w-8 h-8 rounded-full border-2 transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 shadow-md"
                   style={{
-                    backgroundColor: color,
-                    borderColor: accentColor === color ? 'white' : 'transparent',
-                    boxShadow: accentColor === color ? `0 0 16px ${color}60` : undefined,
+                    backgroundColor: option.color,
+                    borderColor: isActive ? 'var(--ov-ink)' : 'transparent',
+                    boxShadow: isActive ? `0 0 16px ${option.color}60` : undefined,
                   }}
                 />
-              ))}
-              <button
-                type="button"
-                onClick={() => colorInputRef.current?.click()}
-                className="w-8 h-8 rounded-full border-2 border-dashed border-white/20 hover:border-white/40 transition-all cursor-pointer flex items-center justify-center text-white/30 hover:text-white/60 hover:scale-110"
-              >
-                <span className="text-[11px] font-bold">+</span>
-              </button>
-            </div>
+              );
+            })}
+            <button
+              type="button"
+              title={'Custom color'}
+              aria-label={'Custom color'}
+              onClick={() => colorInputRef.current?.click()}
+              className={`w-8 h-8 rounded-full border-2 transition-all cursor-pointer flex items-center justify-center hover:scale-110 ${
+                isCustomAccent
+                  ? 'border-white/70'
+                  : 'border-dashed border-white/20 text-white/30 hover:border-white/40 hover:text-white/60'
+              }`}
+              style={isCustomAccent ? { backgroundColor: accentColor } : undefined}
+            >
+              {isCustomAccent ? null : <span className="text-[11px] font-bold">+</span>}
+            </button>
           </div>
-        )}
+        </div>
 
         <input
           ref={colorInputRef}

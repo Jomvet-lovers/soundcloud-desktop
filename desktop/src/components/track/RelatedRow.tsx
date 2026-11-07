@@ -38,7 +38,7 @@ export const RelatedRow = React.memo(
                 : 'opacity-0 group-hover:bg-black/35 group-hover:opacity-100'
             }`}
           >
-            <span className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
+            <span className="on-artwork-pill w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
               {isThisPlaying ? pauseBlack11 : playBlack11}
             </span>
           </span>

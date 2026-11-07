@@ -189,18 +189,30 @@ export const Youtube = memo(({ size, className }: { size?: number; className?: s
 // ── Pre-rendered JSX constants (hot-path, fixed props) ──────
 
 // Play / Pause (filled, black)
-export const playBlack11 = <_Play size={11} fill="black" strokeWidth={0} className="ml-px" />;
-export const pauseBlack11 = <_Pause size={11} fill="black" strokeWidth={0} />;
-export const playBlack12 = <_Play size={12} fill="black" strokeWidth={0} className="ml-px" />;
-export const pauseBlack12 = <_Pause size={12} fill="black" strokeWidth={0} />;
-export const playBlack14 = <_Play size={14} fill="black" strokeWidth={0} className="ml-px" />;
-export const pauseBlack14 = <_Pause size={14} fill="black" strokeWidth={0} />;
-export const playBlack18 = <_Play size={18} fill="black" strokeWidth={0} className="ml-0.5" />;
-export const pauseBlack18 = <_Pause size={18} fill="black" strokeWidth={0} />;
-export const playBlack20 = <_Play size={20} fill="black" strokeWidth={0} className="ml-0.5" />;
-export const pauseBlack20 = <_Pause size={20} fill="black" strokeWidth={0} />;
-export const playBlack22 = <_Play size={22} fill="black" strokeWidth={0} className="ml-0.5" />;
-export const pauseBlack22 = <_Pause size={22} fill="black" strokeWidth={0} />;
+export const playBlack11 = (
+  <_Play size={11} fill="currentColor" strokeWidth={0} className="ml-px" />
+);
+export const pauseBlack11 = <_Pause size={11} fill="currentColor" strokeWidth={0} />;
+export const playBlack12 = (
+  <_Play size={12} fill="currentColor" strokeWidth={0} className="ml-px" />
+);
+export const pauseBlack12 = <_Pause size={12} fill="currentColor" strokeWidth={0} />;
+export const playBlack14 = (
+  <_Play size={14} fill="currentColor" strokeWidth={0} className="ml-px" />
+);
+export const pauseBlack14 = <_Pause size={14} fill="currentColor" strokeWidth={0} />;
+export const playBlack18 = (
+  <_Play size={18} fill="currentColor" strokeWidth={0} className="ml-0.5" />
+);
+export const pauseBlack18 = <_Pause size={18} fill="currentColor" strokeWidth={0} />;
+export const playBlack20 = (
+  <_Play size={20} fill="currentColor" strokeWidth={0} className="ml-0.5" />
+);
+export const pauseBlack20 = <_Pause size={20} fill="currentColor" strokeWidth={0} />;
+export const playBlack22 = (
+  <_Play size={22} fill="currentColor" strokeWidth={0} className="ml-0.5" />
+);
+export const pauseBlack22 = <_Pause size={22} fill="currentColor" strokeWidth={0} />;
 
 // Play / Pause (filled, inherits color via currentColor — use text-accent-contrast on parent)
 export const playWhite12 = (
@@ -221,7 +233,7 @@ export const pauseCurrent16 = <_Pause size={16} fill="currentColor" strokeWidth=
 
 // Play / Pause (outline / misc)
 export const playIcon32 = <_Play size={32} />;
-export const playBlack20ml1 = <_Play size={20} fill="black" className="ml-1" />;
+export const playBlack20ml1 = <_Play size={20} fill="currentColor" className="ml-1" />;
 export const pauseTextWhite12 = <_Pause size={12} className="text-white" />;
 
 // Transport controls

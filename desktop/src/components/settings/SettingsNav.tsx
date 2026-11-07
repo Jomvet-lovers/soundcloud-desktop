@@ -20,6 +20,7 @@ export function SettingsNav({
             <button
               key={c.id}
               type="button"
+              data-tab-active={on}
               onClick={() => withViewTransition(() => onChange(c.id))}
               className={`group relative flex items-center gap-3 h-10 pl-3 pr-3 rounded-md text-[13px] font-medium text-left transition-colors cursor-pointer ${
                 on ? 'text-white' : 'text-white/45 hover:text-white/80 hover:bg-white/[0.04]'

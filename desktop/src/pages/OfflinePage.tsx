@@ -174,6 +174,7 @@ export function OfflinePage() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           type="button"
+          data-tab-active={section === 'likes'}
           onClick={() => withViewTransition(() => setSection('likes'))}
           className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
             section === 'likes' ? 'text-white/90' : 'text-white/45 hover:text-white/70'
@@ -191,6 +192,7 @@ export function OfflinePage() {
         </button>
         <button
           type="button"
+          data-tab-active={section === 'cached'}
           onClick={() => withViewTransition(() => setSection('cached'))}
           className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
             section === 'cached' ? 'text-white/90' : 'text-white/45 hover:text-white/70'

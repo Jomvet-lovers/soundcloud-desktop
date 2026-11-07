@@ -25,7 +25,7 @@ export function Toggle({
     >
       <span
         className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
-          checked ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+          checked ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-fixed-white'
         }`}
       />
     </button>

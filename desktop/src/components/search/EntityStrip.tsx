@@ -33,11 +33,11 @@ export const EntityStrip = memo(function EntityStrip({ items }: EntityStripProps
           type="button"
           onClick={it.onClick}
           className="group shrink-0 flex items-center gap-2.5 pl-1 pr-3.5 py-1 rounded-full transition-colors duration-300 cursor-pointer hover:bg-white/[0.06]"
-          style={{ border: '0.5px solid rgba(255,255,255,0.08)' }}
+          style={{ border: '0.5px solid color-mix(in srgb, var(--ov-ink) 8%, transparent)' }}
         >
           <span
             className={`relative w-9 h-9 shrink-0 overflow-hidden ${it.round ? 'rounded-full' : 'rounded-lg'}`}
-            style={{ background: 'rgba(255,255,255,0.05)' }}
+            style={{ background: 'color-mix(in srgb, var(--ov-ink) 5%, transparent)' }}
           >
             {it.image ? (
               <img

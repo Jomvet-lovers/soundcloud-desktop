@@ -79,8 +79,8 @@ function MenuShell({ children }: { children: React.ReactNode }) {
       />
       <div
         role="menu"
-        className="fixed z-[96] w-[236px] rounded-xl border border-white/[0.1] bg-[#141417] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.5)]"
-        style={{ left, top }}
+        className="fixed z-[96] w-[236px] rounded-xl border border-white/[0.1] bg-[#141417] p-1.5"
+        style={{ left, top, boxShadow: 'var(--popover-shadow)' }}
       >
         {children}
       </div>

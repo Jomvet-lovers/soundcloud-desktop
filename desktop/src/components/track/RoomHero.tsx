@@ -76,10 +76,12 @@ export const RoomHero = React.memo(function RoomHero({
   const year = track.release_year ?? track.enrichment?.album?.year;
 
   // The old "vibe" gradient is gone (every aura is neutral now), so a
-  // background-clip:text title rendered fully transparent — plain white.
+  // background-clip:text title rendered fully transparent — plain ink.
+  // The shadow is a dark-theme relic (it lit the title off the aura); light
+  // mode drops it via --hero-title-shadow.
   const titleStyle = {
-    color: 'rgba(255,255,255,0.96)',
-    textShadow: '0 6px 22px rgba(0,0,0,0.5)',
+    color: 'color-mix(in srgb, var(--ov-ink) 96%, transparent)',
+    textShadow: 'var(--hero-title-shadow)',
   };
 
   return (

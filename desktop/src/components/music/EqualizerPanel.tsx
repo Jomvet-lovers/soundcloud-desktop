@@ -127,7 +127,7 @@ const BandSlider = React.memo(function BandSlider({
               ? 'rgb(52,211,153)'
               : isNegative
                 ? 'rgb(96,165,250)'
-                : 'rgba(255,255,255,0.75)',
+                : 'color-mix(in srgb, var(--ov-ink) 75%, transparent)',
           }}
         />
       </div>

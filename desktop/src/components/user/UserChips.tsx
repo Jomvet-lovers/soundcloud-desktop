@@ -38,8 +38,8 @@ export const InfoChip = React.memo(function InfoChip({
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-white/55"
       style={{
-        background: 'rgba(28,28,32,0.85)',
-        border: '0.5px solid rgba(255,255,255,0.07)',
+        background: 'var(--surface-overlay)',
+        border: '0.5px solid color-mix(in srgb, var(--ov-ink) 7%, transparent)',
       }}
     >
       <span className="text-white/45">{icon}</span>

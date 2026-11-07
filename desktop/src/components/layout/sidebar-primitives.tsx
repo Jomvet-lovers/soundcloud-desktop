@@ -6,9 +6,10 @@ export const ROW =
 
 const LABEL_T = 'max-width 320ms cubic-bezier(0.2,0.8,0.2,1), opacity 240ms ease';
 
-// Active = white text; the shared sliding indicator supplies the wash.
+// Active = full label ink (white on the dark shell, #1d1d1f on light); the
+// shared sliding indicator supplies the wash.
 export const ACTIVE: CSSProperties = {
-  color: '#fff',
+  color: 'var(--ov-ink)',
 };
 
 /** A label that always exists but folds away purely via CSS on collapse — no JS

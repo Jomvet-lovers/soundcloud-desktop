@@ -34,22 +34,22 @@ const TIERS: Record<Tier, { letter: string; inline: string; overlay: string }> =
   cached: {
     letter: 'C',
     inline: 'bg-amber-500/15 text-amber-300 ring-amber-400/25',
-    overlay: 'bg-amber-400/90 text-black ring-black/5',
+    overlay: 'bg-amber-400/90 text-fixed-black ring-fixed-black/5',
   },
   pending: {
     letter: '·',
     inline: 'bg-white/[0.06] text-white/40 ring-white/10',
-    overlay: 'bg-white/75 text-black/60 ring-black/5',
+    overlay: 'bg-fixed-white/75 text-fixed-black/60 ring-fixed-black/5',
   },
   tooLong: {
     letter: 'F',
     inline: 'bg-black/60 text-white/70 ring-white/15',
-    overlay: 'bg-black/85 text-white/80 ring-white/15',
+    overlay: 'bg-black/85 text-fixed-white/80 ring-fixed-white/15',
   },
   failed: {
     letter: '!',
     inline: 'bg-rose-500/15 text-rose-300 ring-rose-400/25',
-    overlay: 'bg-rose-400/90 text-black ring-black/5',
+    overlay: 'bg-rose-400/90 text-fixed-black ring-fixed-black/5',
   },
 };
 

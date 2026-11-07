@@ -251,6 +251,7 @@ const SortToggle = memo(
             <button
               key={o.id}
               type="button"
+              data-tab-active={active}
               onClick={() => withViewTransition(() => onChange(o.id))}
               className={`relative px-4 h-8 rounded-xl text-[12px] font-semibold cursor-pointer transition-all ${
                 active ? 'text-white' : 'text-white/40 hover:text-white/70'
@@ -309,6 +310,7 @@ const ViewToggle = memo(
             <button
               key={o.id}
               type="button"
+              data-tab-active={active}
               onClick={() => withViewTransition(() => onChange(o.id))}
               className={`relative inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-[12px] font-semibold cursor-pointer transition-all ${
                 active ? 'text-white' : 'text-white/40 hover:text-white/70'
@@ -351,8 +353,8 @@ const WantedRow = memo(({ track, index }: { track: Track; index: number }) => {
       <div
         className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
         style={{
-          background: 'rgba(255,255,255,0.03)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
+          background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+          boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--ov-ink) 6%, transparent)',
         }}
       >
         <Music size={16} className="text-white/20" />

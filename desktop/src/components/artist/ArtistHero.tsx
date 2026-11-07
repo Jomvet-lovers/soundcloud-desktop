@@ -84,8 +84,10 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
           <h1
             className="text-5xl md:text-7xl font-black leading-[0.85] tracking-tighter break-words max-w-full"
             style={{
-              color: hasStar ? auraRgb(aura) : '#fff',
-              textShadow: '0 8px 24px rgba(0,0,0,0.5)',
+              color: hasStar ? auraRgb(aura) : 'var(--ov-ink)',
+              // Dark keeps a glow under the name; light drops it (Apple never
+              // shadows a title).
+              textShadow: 'var(--hero-title-shadow)',
             }}
           >
             {artist.name}

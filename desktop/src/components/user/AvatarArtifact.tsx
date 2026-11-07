@@ -18,8 +18,8 @@ function AvatarArtifactImpl(props: AvatarArtifactProps) {
       <div
         className="relative w-full h-full rounded-[1.25rem] overflow-hidden"
         style={{
-          background: 'rgba(255,255,255,0.03)',
-          border: '0.5px solid rgba(255,255,255,0.10)',
+          background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+          border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
         }}
       >
         {url ? (

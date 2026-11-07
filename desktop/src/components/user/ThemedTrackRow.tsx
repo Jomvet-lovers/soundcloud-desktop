@@ -32,7 +32,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
       onContextMenu={trackMenuHandler(track)}
       onMouseEnter={(e) => {
         preloadTrack(track.urn);
-        e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+        e.currentTarget.style.background = 'color-mix(in srgb, var(--ov-ink) 4%, transparent)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = '';
@@ -53,8 +53,10 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center"
                 style={{
-                  background: lightAura ? auraRgb(aura) : 'rgba(48,48,54,0.92)',
+                  background: lightAura ? auraRgb(aura) : 'var(--play-chip-bg)',
                   border: `0.5px solid ${auraRgba(aura, 0.3)}`,
+                  // Glyph follows currentColor (see AlbumTrackRow).
+                  color: lightAura ? '#000' : 'var(--ov-ink)',
                 }}
               >
                 {playIcon}
@@ -66,7 +68,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
 
       <div
         className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]"
-        style={{ border: '0.5px solid rgba(255,255,255,0.08)' }}
+        style={{ border: '0.5px solid color-mix(in srgb, var(--ov-ink) 8%, transparent)' }}
       >
         {cover ? (
           <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />

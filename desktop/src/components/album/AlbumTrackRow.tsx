@@ -29,7 +29,7 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
       className="group flex items-center gap-4 px-4 py-2.5 rounded-md transition-colors duration-150 select-none"
       onMouseEnter={(e) => {
         preloadTrack(track.urn);
-        e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+        e.currentTarget.style.background = 'color-mix(in srgb, var(--ov-ink) 4%, transparent)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = '';
@@ -50,8 +50,11 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center"
                 style={{
-                  background: lightAura ? auraRgba(aura, 0.85) : 'rgba(54,54,60,0.92)',
+                  background: lightAura ? auraRgba(aura, 0.85) : 'var(--play-chip-bg)',
                   boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
+                  // The glyph follows currentColor: a bright aura fill takes
+                  // black ink, otherwise the theme ink — in either theme.
+                  color: lightAura ? '#000' : 'var(--ov-ink)',
                 }}
               >
                 {playIcon}
@@ -63,7 +66,7 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
 
       <div
         className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 transition-transform duration-500 group-hover:scale-105"
-        style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }}
+        style={{ boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--ov-ink) 8%, transparent)' }}
       >
         {cover ? (
           <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />

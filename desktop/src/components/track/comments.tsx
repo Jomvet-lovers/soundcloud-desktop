@@ -217,8 +217,8 @@ export const CommentForm = React.memo(function CommentForm({
     <div
       className="flex-1 min-w-[240px] flex items-center gap-2.5 h-11 pl-3.5 pr-2 rounded-full"
       style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: `0.5px solid ${focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
+        background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+        border: `0.5px solid ${focused ? 'var(--color-accent)' : 'color-mix(in srgb, var(--ov-ink) 12%, transparent)'}`,
         transition: 'border-color 300ms ease',
       }}
     >
@@ -265,7 +265,9 @@ export const CommentForm = React.memo(function CommentForm({
         className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors duration-200 cursor-pointer disabled:opacity-30 disabled:cursor-default"
         style={{
           color: accent,
-          background: body.trim() ? 'rgba(255,255,255,0.08)' : 'transparent',
+          background: body.trim()
+            ? 'color-mix(in srgb, var(--ov-ink) 8%, transparent)'
+            : 'transparent',
         }}
       >
         {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

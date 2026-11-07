@@ -95,8 +95,8 @@ export const TrackCard = React.memo(
             }`}
           >
             <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl group-hover:scale-100 ${
-                showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
+              className={`on-artwork-pill w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl group-hover:scale-100 ${
+                showPlayingOverlay ? 'scale-100' : 'scale-75'
               }`}
             >
               {isThisPlaying ? pauseBlack20 : playBlack20}

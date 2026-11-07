@@ -65,7 +65,10 @@ export const QueuePanel = React.memo(
             className="absolute inset-0 overflow-hidden"
             style={{ contain: 'strict', transform: 'translateZ(0)' }}
           >
-            <div className="absolute inset-0" style={{ background: '#101014' }} />
+            <div
+              className="absolute inset-0"
+              style={{ background: 'var(--surface-raised-strong)' }}
+            />
           </div>
 
           {/* Content */}

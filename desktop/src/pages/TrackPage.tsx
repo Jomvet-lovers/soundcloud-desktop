@@ -146,8 +146,8 @@ export const TrackPage = React.memo(function TrackPage() {
             onClick={() => navigate(-1)}
             className="inline-flex items-center gap-1.5 h-9 pl-2.5 pr-4 rounded-full text-[12px] text-white/70 hover:text-white transition-colors cursor-pointer"
             style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '0.5px solid rgba(255,255,255,0.1)',
+              background: 'color-mix(in srgb, var(--ov-ink) 5%, transparent)',
+              border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
             }}
           >
             <ChevronLeft size={14} />

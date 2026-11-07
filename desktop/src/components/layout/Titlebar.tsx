@@ -45,8 +45,8 @@ const NavButtons = React.memo(() => {
         style={
           onHome
             ? {
-                color: '#fff',
-                background: 'rgba(255,255,255,0.08)',
+                color: 'var(--ov-ink)',
+                background: 'color-mix(in srgb, var(--ov-ink) 8%, transparent)',
               }
             : undefined
         }
@@ -90,7 +90,8 @@ export const Titlebar = React.memo(() => {
       className="relative z-50 h-14 flex items-center gap-3 px-3 select-none shrink-0"
       data-tauri-drag-region
       style={{
-        borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+        borderBottom: '0.5px solid color-mix(in srgb, var(--ov-ink) 7%, transparent)',
+        backgroundColor: 'var(--bg-chrome)',
       }}
     >
       {/* LEFT: logo (image) + collapsible wordmark + persistent nav */}
@@ -103,7 +104,7 @@ export const Titlebar = React.memo(() => {
             data-tauri-drag-region
             className="w-8 h-8 rounded-[10px] shrink-0"
             style={{
-              boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.1)',
+              boxShadow: 'inset 0 0 0 0.5px color-mix(in srgb, var(--ov-ink) 10%, transparent)',
             }}
           />
           {/* Always rendered; collapses purely via CSS so there's no JS mount/unmount

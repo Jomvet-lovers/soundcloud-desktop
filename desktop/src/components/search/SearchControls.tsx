@@ -44,14 +44,14 @@ export const SearchControls = memo(function SearchControls() {
         style={
           source === 'sc'
             ? {
-                color: '#fff',
-                background: 'rgba(255,255,255,0.07)',
+                color: 'var(--ov-ink)',
+                background: 'color-mix(in srgb, var(--ov-ink) 7%, transparent)',
                 border: '0.5px solid var(--color-accent)',
               }
             : {
-                color: 'rgba(255,255,255,0.45)',
-                background: 'rgba(255,255,255,0.04)',
-                border: '0.5px solid rgba(255,255,255,0.1)',
+                color: 'color-mix(in srgb, var(--ov-ink) 45%, transparent)',
+                background: 'color-mix(in srgb, var(--ov-ink) 4%, transparent)',
+                border: '0.5px solid color-mix(in srgb, var(--ov-ink) 10%, transparent)',
               }
         }
       >
@@ -81,10 +81,10 @@ function Pill({
       style={
         active
           ? {
-              color: '#fff',
-              background: 'rgba(255,255,255,0.08)',
+              color: 'var(--ov-ink)',
+              background: 'color-mix(in srgb, var(--ov-ink) 8%, transparent)',
             }
-          : { color: 'rgba(255,255,255,0.45)' }
+          : { color: 'color-mix(in srgb, var(--ov-ink) 45%, transparent)' }
       }
     >
       {icon}

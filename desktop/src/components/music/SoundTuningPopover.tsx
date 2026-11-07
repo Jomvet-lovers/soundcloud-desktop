@@ -103,6 +103,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                 <div className="flex overflow-hidden rounded-md border border-white/[0.1]">
                   <button
                     type="button"
+                    data-tab-active={!isManual}
                     onClick={() => withViewTransition(() => setPitchControlMode('auto'))}
                     title={'Pitch follows speed'}
                     className={`relative h-5 px-1.5 text-[9px] transition-colors ${
@@ -119,6 +120,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                   </button>
                   <button
                     type="button"
+                    data-tab-active={isManual}
                     onClick={() => withViewTransition(() => setPitchControlMode('manual'))}
                     title={'Manual pitch'}
                     className={`relative h-5 border-l border-white/[0.1] px-1.5 text-[9px] transition-colors ${

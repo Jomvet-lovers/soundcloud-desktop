@@ -38,7 +38,7 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
   return (
     <div
       className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
-      style={{ background: 'rgba(255,255,255,0.015)' }}
+      style={{ background: 'color-mix(in srgb, var(--ov-ink) 1.5%, transparent)' }}
     >
       <div className="w-9 h-9 flex items-center justify-center shrink-0">
         <span className="text-[13px] text-white/25 tabular-nums font-semibold">{position}</span>
@@ -46,8 +46,8 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
       <div
         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
         style={{
-          background: 'rgba(255,255,255,0.03)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
+          background: 'color-mix(in srgb, var(--ov-ink) 3%, transparent)',
+          boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--ov-ink) 6%, transparent)',
         }}
       >
         <Music size={14} className="text-white/20" />

@@ -119,7 +119,7 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
         className="aspect-square rounded-xl overflow-hidden relative"
         style={{
           background: auraRgba(aura, 0.2),
-          border: '0.5px solid rgba(255,255,255,0.08)',
+          border: '0.5px solid color-mix(in srgb, var(--ov-ink) 8%, transparent)',
         }}
       >
         {album.cover_url ? (
